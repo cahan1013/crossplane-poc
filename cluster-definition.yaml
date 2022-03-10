@@ -1,0 +1,92 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: eksclustersolo.ekssolo.cathy.io
+spec:
+  group: ekssolo.cathy.io
+  names:
+    kind: EKSClusterSolo
+    plural: eksclustersolo
+  claimNames:
+    kind: EKSClusterSoloClaim
+    plural: eksclustersoloclaim
+  versions:
+    - name: v1beta1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                parameters:
+                  type: object
+                  properties:
+
+                    admin-role-name:
+                      description: the default admin role name for cluster and node group
+                      type: string
+
+                    admin-account-id:
+                      description: the default admin account id
+                      type: string
+
+                    provider-config-name:
+                      description: provider config name
+                      type: string
+
+                    region:
+                      description: Geographic location of this cluster
+                      type: string
+                      enum: ["cn-north-1", "us-west-2", "us-east-1"]
+
+                    subnet-names:
+                      description: subnet names for public and private
+                      type: array
+                      items:
+                        type: string
+
+                    private-subnet-names:
+                      description: subnet names for private
+                      type: array
+                      items:
+                        type: string
+
+                    subnetids:
+                      description: subnet IDs for cluster
+                      type: array
+                      items:
+                        type: string
+
+                    k8s-version:
+                      description: Kubernetes version
+                      type: string
+                      enum: ["1.20", "1.21", "1.22"]
+                    workers-size:
+                      description: Desired number of worker nodes in the cluster
+                      type: integer
+
+                  required:
+                    - admin-role-name
+                    - admin-account-id
+                    - provider-config-name
+                    - region
+                    - private-subnet-names
+                    - subnet-names
+                    - k8s-version
+                    - workers-size
+
+              required:
+                - parameters
+
+            status:
+              description: A Status represents the observed state
+              properties:
+                eks:
+                  description: Freeform field containing status information for eks
+                  type: object
+                  x-kubernetes-preserve-unknown-fields: true
+              type: object

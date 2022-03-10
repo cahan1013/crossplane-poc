@@ -1,0 +1,394 @@
+---
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: amazon-eks-cluster-solo
+  labels:
+    provider: aws
+    service: eks
+    compute: managed
+spec:
+  writeConnectionSecretsToNamespace: crossplane-system
+  compositeTypeRef:
+    apiVersion: ekssolo.cathy.io/v1beta1
+    kind: EKSClusterSolo
+
+  patchSets:
+    - name: common-parameters
+      patches:
+        - fromFieldPath: "spec.parameters.region"
+          toFieldPath: "spec.forProvider.region"
+        - fromFieldPath: spec.parameters.provider-config-name
+          toFieldPath: spec.providerConfigRef.name
+
+  resources:
+    - name: cluster-role
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: Role
+        metadata:
+          labels:
+            role: controlplane
+        spec:
+          forProvider:
+            assumeRolePolicyDocument: |
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "eks.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }
+                ]
+              }
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.labels.claim-name
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-cluster-role"
+
+    - name: cluster-role-policy
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: RolePolicyAttachment
+        spec:
+          forProvider:
+            policyArn: arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+            roleNameSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: controlplane
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.forProvider.roleNameSelector.matchLabels.claim-name
+
+    - name: eks-cluster
+      base:
+        apiVersion: eks.aws.crossplane.io/v1beta1
+        kind: Cluster
+        spec:
+          forProvider:
+            roleArnSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: controlplane
+            resourcesVpcConfig:
+              endpointPrivateAccess: false
+              endpointPublicAccess: true
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.parameters.subnet-names
+          toFieldPath: spec.forProvider.resourcesVpcConfig.subnetIds
+#        - fromFieldPath: spec.parameters.role-arn
+#          toFieldPath: spec.forProvider.roleArn
+        - fromFieldPath: "spec.parameters.k8s-version"
+          toFieldPath: "spec.forProvider.version"
+        - fromFieldPath: spec.claimRef.namespace
+          toFieldPath: spec.writeConnectionSecretToRef.namespace
+        - fromFieldPath: "spec.claimRef.name"
+          toFieldPath: "spec.writeConnectionSecretToRef.name"
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-ekscluster-connection"
+        - type: ToCompositeFieldPath
+          fromFieldPath: status.atProvider.identity.oidc.issuer
+          toFieldPath: status.eks.oidc
+          policy:
+            fromFieldPath: Optional
+      connectionDetails:
+        - fromConnectionSecretKey: clusterCA
+        - fromConnectionSecretKey: endpoint
+        - fromConnectionSecretKey: kubeconfig
+
+    - name: nodegroup-role
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: Role
+        metadata:
+          labels:
+            role: nodegroup
+        spec:
+          forProvider:
+            assumeRolePolicyDocument: |
+              {
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Effect": "Allow",
+                        "Principal": {
+                            "Service": [
+                                "ec2.amazonaws.com"
+                            ]
+                        },
+                        "Action": [
+                            "sts:AssumeRole"
+                        ]
+                    }
+                ]
+              }
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.labels.claim-name
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-nodegroup-role"
+
+    - name: nodegroup-role-policy1
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: RolePolicyAttachment
+        spec:
+          forProvider:
+            policyArn: arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy
+            roleNameSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: nodegroup
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.forProvider.roleNameSelector.matchLabels.claim-name
+
+    - name: nodegroup-role-policy2
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: RolePolicyAttachment
+        spec:
+          forProvider:
+            policyArn: arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy
+            roleNameSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: nodegroup
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.forProvider.roleNameSelector.matchLabels.claim-name
+
+    - name: nodegroup-role-policy13
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: RolePolicyAttachment
+        spec:
+          forProvider:
+            policyArn: arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+            roleNameSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: nodegroup
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.forProvider.roleNameSelector.matchLabels.claim-name
+
+    - name: eks-nodegroup
+      base:
+        apiVersion: eks.aws.crossplane.io/v1alpha1
+        kind: NodeGroup
+        spec:
+          forProvider:
+            instanceTypes:
+              - m5.large
+            scalingConfig:
+              minSize: 1
+            clusterNameSelector:
+              matchControllerRef: true
+            nodeRoleSelector:
+              matchControllerRef: true
+              matchLabels:
+                role: nodegroup
+            amiType: AL2_x86_64
+      patches:
+        - type: PatchSet
+          patchSetName: common-parameters
+        - fromFieldPath: spec.parameters.private-subnet-names
+          toFieldPath: spec.forProvider.subnets
+        - fromFieldPath: "spec.parameters.workers-size"
+          toFieldPath: "spec.forProvider.scalingConfig.desiredSize"
+        - fromFieldPath: "spec.parameters.workers-size"
+          toFieldPath: "spec.forProvider.scalingConfig.maxSize"
+#        - fromFieldPath: "spec.parameters.nodegroup-role-arn"
+#          toFieldPath: "spec.forProvider.nodeRole"
+
+    - name: OIDC-provider
+      base:
+        apiVersion: iam.aws.crossplane.io/v1beta1
+        kind: OpenIDConnectProvider
+        spec:
+          forProvider:
+            clientIDList:
+              - sts.amazonaws.com
+            thumbprintList:
+              - "9e99a48a9960b14926bb7f3b02e22da2b0ab7280"
+      patches:
+        - fromFieldPath: spec.parameters.provider-config-name
+          toFieldPath: spec.providerConfigRef.name
+        - fromFieldPath: status.eks.oidc
+          toFieldPath: spec.forProvider.url
+          policy:
+            fromFieldPath: Required
+
+    - name: helm-provider-config
+      base:
+        apiVersion: helm.crossplane.io/v1beta1
+        kind: ProviderConfig
+        spec:
+          credentials:
+            source: Secret
+            secretRef:
+              key: kubeconfig
+      patches:
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-helm"
+        - fromFieldPath: spec.claimRef.namespace
+          toFieldPath: spec.credentials.secretRef.namespace
+        - fromFieldPath: "spec.claimRef.name"
+          toFieldPath: spec.credentials.secretRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-ekscluster-connection"
+
+    - name: istio-base
+      base:
+        apiVersion: helm.crossplane.io/v1beta1
+        kind: Release
+        spec:
+          forProvider:
+            namespace: istio-system
+            skipCreateNamespace: false
+            wait: true
+            chart:
+              name: base
+              repository: https://istio-release.storage.googleapis.com/charts
+      patches:
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.providerConfigRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-helm"
+
+    - name: istiod
+      base:
+        apiVersion: helm.crossplane.io/v1beta1
+        kind: Release
+        spec:
+          forProvider:
+            namespace: istio-system
+            skipCreateNamespace: true
+            wait: true
+            chart:
+              name: istiod
+              repository: https://istio-release.storage.googleapis.com/charts
+      patches:
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.providerConfigRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-helm"
+
+    - name: k8s-provider-config
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: ProviderConfig
+        spec:
+          credentials:
+            source: Secret
+            secretRef:
+              key: kubeconfig
+      patches:
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-k8s"
+        - fromFieldPath: spec.claimRef.namespace
+          toFieldPath: spec.credentials.secretRef.namespace
+        - fromFieldPath: "spec.claimRef.name"
+          toFieldPath: spec.credentials.secretRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-ekscluster-connection"
+
+    - name: update-aws-auth
+      base:
+        apiVersion: kubernetes.crossplane.io/v1alpha1
+        kind: Object
+        spec:
+          deletionPolicy: Orphan
+          forProvider:
+            manifest:
+              apiVersion: v1
+              kind: ConfigMap
+              metadata:
+                name: aws-auth
+                namespace: kube-system
+      patches:
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: metadata.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-eks-aws-auth"
+        - fromFieldPath: spec.claimRef.name
+          toFieldPath: spec.providerConfigRef.name
+          transforms:
+            - type: string
+              string:
+                fmt: "%s-k8s"
+        - type: CombineFromComposite
+          combine:
+            variables:
+              - fromFieldPath: spec.parameters.admin-account-id
+              - fromFieldPath: spec.claimRef.name
+              - fromFieldPath: spec.parameters.admin-account-id
+              - fromFieldPath: spec.parameters.admin-role-name
+              - fromFieldPath: spec.parameters.admin-role-name
+            strategy: string
+            string:
+              fmt: |
+                - groups:
+                  - system:bootstrappers
+                  - system:nodes
+                  rolearn: arn:aws:iam::%s:role/%s-nodegroup-role
+                  username: system:node:{{EC2PrivateDNSName}}
+                - groups:
+                  - system:masters
+                  rolearn: arn:aws:iam::%s:role/%s
+                  username: %s:{{SessionName}}
+          toFieldPath: spec.forProvider.manifest.data.mapRoles
+          policy:
+            fromFieldPath: Optional
